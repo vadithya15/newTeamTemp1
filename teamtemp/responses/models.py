@@ -61,7 +61,7 @@ class TeamTemperature(models.Model):
         return self._stats_for(allresponses) 
 
     def __unicode__(self):
-        return u"{}: {} {} {} {} {} {} {} {} {} {} {}".format(self.id, self.creator.id,
+        return u"{}: {} {} {} {} {} {} {} {} {}".format(self.id, self.creator.id,
                                    self.creation_date, self.archive_schedule, self.archive_date,
                                    self.survey_type, self.region_names, self.region_names,
                                    self.site_names, self.default_tz)
