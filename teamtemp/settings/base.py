@@ -83,7 +83,7 @@ STATICFILES_STORAGE = 'whitenoise.django.GzipManifestStaticFilesStorage'
 MIDDLEWARE_CLASSES = (
     'django.middleware.security.SecurityMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
+    'user_sessions.middleware.SessionMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -100,7 +100,7 @@ WSGI_APPLICATION = 'teamtemp.wsgi.application'
 INSTALLED_APPS = (
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    'django.contrib.sessions',
+    'user_sessions',
     # 'django.contrib.sites',
     'django.contrib.messages',
     'whitenoise.runserver_nostatic',
@@ -117,8 +117,8 @@ PASSWORD_HASHERS = (
     'django.contrib.auth.hashers.BCryptPasswordHasher',
 )
 
-SESSION_SERIALIZER = 'django.contrib.sessions.serializers.JSONSerializer'
-SESSION_ENGINE = 'django.contrib.sessions.backends.cached_db'
+# SESSION_SERIALIZER = 'django.contrib.sessions.serializers.JSONSerializer'
+SESSION_ENGINE = 'user_sessions.backends.db'
 
 # A sample logging configuration. The only tangible logging
 # performed by this configuration is to send an email to
@@ -204,4 +204,5 @@ REST_FRAMEWORK = {
 
 LOGIN_URL = "/djadmin/login/"
 LOGOUT_URL = "/djadmin/logout/"
+LOGOUT_REDIRECT_URL = "/"
 
