@@ -1,3 +1,6 @@
+from builtins import str, object
+from future.utils import python_2_unicode_compatible
+
 import hashlib
 
 import pytz
@@ -13,19 +16,19 @@ class WordCloudImage(models.Model):
     image_url = models.CharField(max_length=255)
     creation_date = models.DateTimeField(auto_now_add=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return u"{}: {} {} {} {}".format(self.id, self.creation_date, self.word_hash, self.word_list, self.image_url)
 
     def clean(self):
         self.word_list = self.word_list.lower().strip()
-        self.word_hash = hashlib.sha1(self.word_list).hexdigest()
+        self.word_hash = hashlib.sha1(self.word_list.encode('utf-8')).hexdigest()
 
 
 class User(models.Model):
     id = models.CharField(max_length=32, primary_key=True)
     creation_date = models.DateTimeField(auto_now_add=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return u"{}: {}".format(self.id, self.creation_date)
 
 
@@ -108,7 +111,7 @@ class TeamTemperature(models.Model):
 
         return self.next_archive_date
 
-    def __unicode__(self):
+    def __str__(self):
         return u"{}: {} {} {} {} {} {} {} {} {}".format(self.id, self.creator.id,
                                                         self.creation_date, self.archive_schedule, self.archive_date,
                                                         self.survey_type, self.region_names, self.region_names,
@@ -129,7 +132,7 @@ class TemperatureResponse(models.Model):
     response_date = models.DateTimeField(db_index=True)
     archive_date = models.DateTimeField(blank=True, null=True, db_index=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return u"{}: {} {} {} {} {} {} {} {}".format(self.id, self.request.id,
                                                      self.responder.id,
                                                      self.score, self.word, self.team_name,
@@ -141,7 +144,7 @@ class TemperatureResponse(models.Model):
 
 
 class TeamResponseHistory(models.Model):
-    class Meta:
+    class Meta(object):
         verbose_name_plural = "Team response histories"
 
     id = models.AutoField(primary_key=True)
@@ -152,7 +155,7 @@ class TeamResponseHistory(models.Model):
     team_name = models.CharField(max_length=64, null=True, db_index=True)
     archive_date = models.DateTimeField(db_index=True)
 
-    def __unicode__(self):
+    def __str__(self):
         return u"{}: {} {} {} {} {} {}".format(self.id, self.request.id,
                                                self.average_score,
                                                self.word_list, self.responder_count,
@@ -163,7 +166,7 @@ class TeamResponseHistory(models.Model):
 
 
 class Teams(models.Model):
-    class Meta:
+    class Meta(object):
         verbose_name = "Team"
         verbose_name_plural = "Teams"
         unique_together = ("request", "team_name")
@@ -180,6 +183,6 @@ class Teams(models.Model):
     def pretty_team_name(self):
         return self.team_name.replace('_', ' ')
 
-    def __unicode__(self):
+    def __str__(self):
         return u"{}: {} {} {} {} {}".format(self.id, self.request.id,
                                             self.team_name, self.dept_name, self.site_name, self.region_name)
