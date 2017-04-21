@@ -1,6 +1,8 @@
 from __future__ import division, print_function
+
 from future import standard_library
 standard_library.install_aliases()
+
 from builtins import range, str
 from past.utils import old_div
 import errno
@@ -9,12 +11,15 @@ import sys
 import gviz_api
 import os
 import requests
+
+from csp.decorators import csp_update, csp_exempt
+
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.hashers import check_password, make_password
 from django.db import transaction
 from django.http import Http404, HttpResponse
-from django.shortcuts import HttpResponseRedirect, get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.views.static import serve as serve_static
 from django_filters.rest_framework import DjangoFilterBackend
@@ -84,16 +89,19 @@ class TeamsViewSet(viewsets.ModelViewSet):
 
 
 @no_cache()
+@csp_exempt
 def health_check_view(_):
     return HttpResponse('ok', content_type='text/plain')
 
 
 @cache_control('public, max-age=86400')
+@csp_exempt
 def robots_txt_view(_):
-    return HttpResponse('', content_type='text/plain')
+    return HttpResponse('User-agent: *\r\nDisallow:\r\n', content_type='text/plain')
 
 
 @cache_control('public, max-age=315360000')
+@csp_exempt
 def media_view(request, *args, **kwargs):
     return serve_static(request, *args, **kwargs)
 
@@ -103,25 +111,26 @@ def utc_timestamp():
 
 
 @ie_edge()
+@csp_update(SCRIPT_SRC=["'unsafe-inline'", ])
 def home_view(request, survey_type='TEAMTEMP'):
     timezone.activate(timezone.utc)
+
     if request.method == 'POST':
         form = CreateSurveyForm(request.POST, error_class=ErrorBox)
         if form.is_valid():
             csf = form.cleaned_data
+
             survey_id = utils.random_string(8)
             user = get_or_create_user(request)
-            dept_names = csf['dept_names']
-            region_names = csf['region_names']
-            site_names = csf['site_names']
-            survey = TeamTemperature(password=make_password(csf['password']),
+
+            survey = TeamTemperature(id=survey_id,
+                                     password=make_password(csf['new_password']),
                                      creator=user,
                                      survey_type=survey_type,
                                      archive_date=timezone.now(),
-                                     id=survey_id,
-                                     dept_names=dept_names,
-                                     region_names=region_names,
-                                     site_names=site_names,
+                                     dept_names=csf['dept_names'],
+                                     region_names=csf['region_names'],
+                                     site_names=csf['site_names'],
                                      archive_schedule=7,
                                      default_tz='UTC')
             survey.fill_next_archive_date()
@@ -132,9 +141,10 @@ def home_view(request, survey_type='TEAMTEMP'):
 
             messages.success(request, 'Survey %s created.' % survey.id)
 
-            return HttpResponseRedirect(reverse('team', kwargs={'survey_id': survey_id}))
+            return redirect('team', survey_id=survey_id)
     else:
         form = CreateSurveyForm()
+
     return render(request, 'index.html', {'form': form, 'survey_type': survey_type})
 
 
@@ -142,26 +152,27 @@ def authenticated_user(request, survey):
     if survey is None:
         raise Exception('Must supply a survey object')
 
-    if responses.is_admin_for_survey(request, survey.id):
-        return True
-
-    user = get_user(request)
+    user = get_or_create_user(request)
 
     if user and survey.creator.id == user.id:
         responses.add_admin_for_survey(request, survey.id)
+        return True
+
+    if responses.is_admin_for_survey(request, survey.id):
         return True
 
     return False
 
 
 @ie_edge()
+@csp_update(SCRIPT_SRC=["'unsafe-inline'", ])
 def set_view(request, survey_id):
-    rows_changed = 0
-
     survey = get_object_or_404(TeamTemperature, pk=survey_id)
 
+    timezone.activate(pytz.timezone(survey.default_tz or 'UTC'))
+
     if not authenticated_user(request, survey):
-        return HttpResponseRedirect(reverse('admin', kwargs={'survey_id': survey_id}))
+        return redirect('login', survey_id=survey_id, redirect_to=request.get_full_path())
 
     survey_teams = survey.teams.all().order_by('team_name')
 
@@ -169,17 +180,27 @@ def set_view(request, survey_id):
         form = SurveySettingsForm(request.POST, error_class=ErrorBox)
         if form.is_valid():
             srf = form.cleaned_data
-            if srf['password'] != '':
-                survey.password = make_password(srf['password'])
-                messages.success(request, 'Password Updated.')
+
             if srf['archive_schedule'] != survey.archive_schedule:
                 survey.archive_schedule = srf['archive_schedule']
-                messages.success(request, 'Schedule Updated.')
-                survey.fill_next_archive_date(overwrite=True)
-                messages.success(request, 'Next Archive Date Updated to %s.' % survey.next_archive_date)
-            elif srf['next_archive_date'] != survey.next_archive_date:
-                survey.next_archive_date = srf['next_archive_date']
-                messages.success(request, 'Next Archive Date Updated to %s.' % survey.next_archive_date)
+                messages.success(request, 'Archive Schedule Updated to %d days.' % survey.archive_schedule)
+
+            if survey.archive_schedule:
+                original_next_archive_date = survey.next_archive_date
+                if srf['next_archive_date'] and srf['next_archive_date'] != survey.next_archive_date:
+                    survey.next_archive_date = srf['next_archive_date']
+                else:
+                    survey.fill_next_archive_date()
+                if survey.next_archive_date != original_next_archive_date:
+                    messages.success(request, 'Next Archive Date Updated to %s.' % survey.next_archive_date.strftime("%A %d %B %Y"))
+            else:
+                if survey.next_archive_date:
+                    survey.next_archive_date = None
+                    messages.success(request, 'Next Archive Date Cleared.')
+
+            if srf['new_password'] != '':
+                survey.password = make_password(srf['new_password'])
+                messages.success(request, 'Password Updated.')
             if srf['survey_type'] != survey.survey_type:
                 survey.survey_type = srf['survey_type']
                 messages.success(request, 'Survey Type Updated.')
@@ -214,7 +235,7 @@ def set_view(request, survey_id):
             survey.full_clean()
             survey.save()
 
-            return HttpResponseRedirect(reverse('admin', kwargs={'survey_id': survey_id}))
+            return redirect('admin', survey_id=survey_id)
     else:
         form = SurveySettingsForm(instance=survey)
 
@@ -300,7 +321,7 @@ def submit_view(request, survey_id, team_name=''):
             response.save()
 
             messages.success(request, 'Thank you for submitting your answers. You can ' \
-                             'amend them now or later using this browser only if you need to.')
+                                      'amend them now or later using this browser only if you need to.')
     else:
         form = SurveyResponseForm(instance=response, max_word_count=survey.max_word_count)
 
@@ -328,9 +349,7 @@ def submit_view(request, survey_id, team_name=''):
 @no_cache()
 @ie_edge()
 def user_view(request):
-    user = get_user(request)
-    if not user:
-        raise Http404('No valid user found in your browser session.')
+    user = get_or_create_user(request)
 
     admin_survey_ids = responses.get_admin_for_surveys(request)
     if len(admin_survey_ids) > 0:
@@ -342,12 +361,15 @@ def user_view(request):
 
 
 @ie_edge()
-def admin_view(request, survey_id, team_name=''):
+def login_view(request, survey_id, redirect_to=None):
     survey = get_object_or_404(TeamTemperature, pk=survey_id)
 
     timezone.activate(pytz.timezone(survey.default_tz or 'UTC'))
 
-    form = None
+    if not redirect_to:
+        redirect_to = request.GET.get('redirect_to', reverse('admin', kwargs={'survey_id': survey_id}))
+
+    form = ResultsPasswordForm()
     if request.method == 'POST':
         form = ResultsPasswordForm(request.POST, error_class=ErrorBox)
         if form.is_valid():
@@ -355,12 +377,26 @@ def admin_view(request, survey_id, team_name=''):
             password = rpf['password'].encode('utf-8')
             if check_password(password, survey.password):
                 responses.add_admin_for_survey(request, survey.id)
-                return HttpResponseRedirect(reverse('admin', kwargs={'survey_id': survey_id}))
+                assert responses.is_admin_for_survey(request, survey_id)
+                return redirect(redirect_to)
+            else:
+                form.add_error('password', 'Incorrect password')
+
+    if authenticated_user(request, survey):
+        return redirect(redirect_to)
+
+    return render(request, 'password.html', { 'form': form })
+
+
+@ie_edge()
+@csp_update(SCRIPT_SRC=["'unsafe-inline'",],)
+def admin_view(request, survey_id, team_name=''):
+    survey = get_object_or_404(TeamTemperature, pk=survey_id)
+
+    timezone.activate(pytz.timezone(survey.default_tz or 'UTC'))
 
     if not authenticated_user(request, survey):
-        if form is None:
-            form = ResultsPasswordForm()
-        return render(request, 'password.html', {'form': form})
+        return redirect('login', survey_id=survey_id, redirect_to=request.get_full_path())
 
     if team_name != '':
         team = get_object_or_404(Teams, request_id=survey_id, team_name=team_name)
@@ -402,13 +438,14 @@ def generate_wordcloud(word_list, word_hash):
         print("Start Word Cloud Generation: [%s] %s" % (word_hash, word_list), file=sys.stderr)
         response = requests.post("https://www.teamtempapp.com/wordcloud/api/v1.0/generate_wc",
                                  headers={"Word-Cloud-Key": word_cloud_key},
-                                 json={"textblock": word_list, "height": 500, "width": 600, "s_fit": "TRUE",
+                                 json={"textblock": word_list, "height": settings.WORDCLOUD_HEIGHT,
+                                       "width": settings.WORDCLOUD_WIDTH, "s_fit": "TRUE",
                                        "fixed_asp": fixed_asp, "rotate": rotate},
                                  timeout=timeout
                                  )
         if response.status_code == 200:
             print("Finish Word Cloud Generation: [%s]" % (word_hash), file=sys.stderr)
-            return save_url(response.json()['url'], 'wordcloud_images', word_hash)
+            return save_url(response.json()['url'], word_hash)
         else:
             print("Failed Word Cloud Generation: [%s] status_code=%d response=%s" % (word_hash, response.status_code, str(response.__dict__)), file=sys.stderr)
 
@@ -423,12 +460,6 @@ def require_dir(path):
             raise
 
 
-def media_dir(directory):
-    media_directory = os.path.join(settings.MEDIA_ROOT, directory)
-    require_dir(media_directory)
-    return media_directory
-
-
 def media_filename(src, basename=None):
     name = urlparse(src).path.split('/')[-1]
     if basename:
@@ -440,22 +471,22 @@ def media_filename(src, basename=None):
     return name
 
 
-def media_url(src, directory, basename=None):
+def media_url(src, basename=None):
     image_name = media_filename(src, basename)
-    url = os.path.join(settings.MEDIA_URL, os.path.join(directory, image_name))
+    url = os.path.join(settings.MEDIA_URL, image_name)
     return url
 
 
-def media_file(src, directory, basename=None):
+def media_file(src, basename=None):
     image_name = media_filename(src, basename)
-    media_directory = media_dir(directory)
-    filename = os.path.join(media_directory, image_name)
+    require_dir(settings.MEDIA_ROOT)
+    filename = os.path.join(settings.MEDIA_ROOT, image_name)
     return filename
 
 
-def save_url(url, directory, basename):
-    return_url = media_url(url, directory, basename)
-    filename = media_file(url, directory, basename)
+def save_url(url, basename):
+    return_url = media_url(url, basename)
+    filename = media_file(url, basename)
 
     print("Saving Word Cloud: %s as %s" % (url, filename), file=sys.stderr)
 
@@ -466,7 +497,8 @@ def save_url(url, directory, basename):
             print("Failed Saving Word Cloud: IOError:%s %s as %s" % (str(exc), url, filename), file=sys.stderr)
             return None
         except ContentTooShortError as exc:
-            print("Failed Saving Word Cloud: ContentTooShortError:%s %s as %s" % (str(exc), url, filename), file=sys.stderr)
+            print("Failed Saving Word Cloud: ContentTooShortError:%s %s as %s" % (str(exc), url, filename),
+                  file=sys.stderr)
             return None
 
     return return_url
@@ -484,9 +516,10 @@ def reset_view(request, survey_id):
             messages.success(request, 'Survey archived successfully.')
         else:
             messages.error(request, 'Survey archive failed.')
+    else:
+        return redirect('login', survey_id=survey_id, redirect_to=request.get_full_path())
 
-
-    return HttpResponseRedirect(reverse('admin', kwargs={'survey_id': survey_id}))
+    return redirect('admin', survey_id=survey_id)
 
 
 @no_cache()
@@ -506,17 +539,34 @@ def cron_view(request, pin):
 
 def prune_word_cloud_cache(_):
     timezone.activate(timezone.utc)
-    print("prune_word_cloud_cache: Start at " + utc_timestamp(), file=sys.stderr)
+    print("prune_word_cloud_cache: Start at %s" % utc_timestamp(), file=sys.stderr)
+
+    rows_deleted = 0
 
     yesterday = timezone.now() + timedelta(days=-1)
 
-    WordCloudImage.objects.filter(creation_date__lte=yesterday).delete()
+    old_word_cloud_images = WordCloudImage.objects.filter(modified_date__lte=yesterday)
 
-    for word_cloud in WordCloudImage.objects.all():
-        if not os.path.isfile(os.path.join(os.path.dirname(os.path.abspath(__file__)), word_cloud.image_url)):
-            word_cloud.delete()
+    for word_cloud_image in old_word_cloud_images:
+        if word_cloud_image.image_url:
+            fname = media_file(word_cloud_image.image_url)
+            if os.path.isfile(fname):
+                try:
+                    os.remove(fname)
+                except:
+                    pass
 
-    print("prune_word_cloud_cache: Stop at " + utc_timestamp(), file=sys.stderr)
+    rows, _ = old_word_cloud_images.delete()
+    rows_deleted += rows
+
+    for word_cloud_image in WordCloudImage.objects.all():
+        if word_cloud_image.image_url:
+            if not os.path.isfile(media_file(word_cloud_image.image_url)):
+                rows, _ = word_cloud_image.delete()
+                rows_deleted += rows
+
+    print("prune_word_cloud_cache: %d rows deleted" % rows_deleted, file=sys.stderr)
+    print("prune_word_cloud_cache: Stop at %s" % utc_timestamp(), file=sys.stderr)
 
 
 def auto_archive_surveys(request):
@@ -525,16 +575,18 @@ def auto_archive_surveys(request):
 
     team_temperatures = TeamTemperature.objects.filter(archive_schedule__gt=0)
 
-    now = timezone.now()
-    now_date = timezone.localtime(now).date()
-
     for team_temp in team_temperatures:
+        now = timezone.now()
+        now_date = timezone.localtime(now, timezone=pytz.timezone(team_temp.default_tz)).date()
+
         team_temp.fill_next_archive_date()
 
-        print("auto_archive_surveys: Survey %s: Comparing %s >= %s == %s" % (
-            team_temp.id, now_date, team_temp.next_archive_date, (now_date >= team_temp.next_archive_date)), file=sys.stderr)
+        is_archive_day = now_date >= team_temp.next_archive_date
 
-        if now_date >= team_temp.next_archive_date:
+        print("auto_archive_surveys: Survey %s: Comparing %s >= %s == %s (Timezone: %s)" % (
+            team_temp.id, now_date, team_temp.next_archive_date, is_archive_day, team_temp.default_tz), file=sys.stderr)
+
+        if is_archive_day:
             archive_survey(request, team_temp, archive_date=now)
 
     print("auto_archive_surveys: Stop at " + utc_timestamp(), file=sys.stderr)
@@ -550,6 +602,8 @@ def archive_survey(_, survey, archive_date=timezone.now()):
     teams = survey.temperature_responses.filter(archived=False).values('team_name').distinct()
 
     average_total = 0
+    average_minimum = None
+    average_maximum = None
     average_count = 0
     average_responder_total = 0
     average_word_list = ""
@@ -563,6 +617,8 @@ def archive_survey(_, survey, archive_date=timezone.now()):
 
         history = TeamResponseHistory(request=survey,
                                       average_score=("%.5f" % float(team_stats['average']['score__avg'])),
+                                      minimum_score=team_stats['minimum']['score__min'],
+                                      maximum_score=team_stats['maximum']['score__max'],
                                       word_list=word_list,
                                       responder_count=team_stats['count'],
                                       team_name=team['team_name'],
@@ -572,6 +628,10 @@ def archive_survey(_, survey, archive_date=timezone.now()):
         average_total += team_stats['average']['score__avg']
         average_count += 1
         average_responder_total += team_stats['count']
+        if average_minimum is None or average_minimum > team_stats['minimum']['score__min']:
+            average_minimum = team_stats['minimum']['score__min']
+        if average_maximum is None or average_maximum < team_stats['maximum']['score__max']:
+            average_maximum = team_stats['maximum']['score__max']
 
         team_response_objects.update(archived=True, archive_date=archive_date)
 
@@ -579,16 +639,19 @@ def archive_survey(_, survey, archive_date=timezone.now()):
     if average_count > 0:
         history = TeamResponseHistory(request=survey,
                                       average_score=("%.5f" % float(old_div(average_total, float(average_count)))),
+                                      minimum_score=average_minimum,
+                                      maximum_score=average_maximum,
                                       word_list=average_word_list.strip(),
                                       responder_count=average_responder_total,
                                       team_name='Average',
                                       archive_date=archive_date)
         history.save()
 
-    survey.advance_next_archive_date()
+    survey.advance_next_archive_date(now_date=timezone.localtime(archive_date).date())
     survey.archive_date = archive_date
 
-    print("Archiving %s: Next Archive Date %s" % (survey.id, survey.next_archive_date), file=sys.stderr)
+    print("Archiving %s: Archive Schedule %d days, Next Archive Date %s (%s)" % (
+        survey.id, survey.archive_schedule, survey.next_archive_date, survey.default_tz), file=sys.stderr)
 
     survey.full_clean()
     survey.save()
@@ -601,7 +664,7 @@ def team_view(request, survey_id, team_name=None):
     survey = get_object_or_404(TeamTemperature, pk=survey_id)
 
     if not authenticated_user(request, survey):
-        return HttpResponseRedirect(reverse('admin', kwargs={'survey_id': survey_id}))
+        return redirect('login', survey_id=survey_id, redirect_to=request.get_full_path())
 
     team = None
     if team_name is not None:
@@ -657,7 +720,7 @@ def team_view(request, survey_id, team_name=None):
 
                         messages.success(request, 'Team created.')
 
-                return HttpResponseRedirect(reverse('admin', kwargs={'survey_id': survey_id}))
+                return redirect('admin', survey_id=survey_id)
     else:
         form = AddTeamForm(instance=team, dept_names_list=dept_names_list, region_names_list=region_names_list,
                            site_names_list=site_names_list)
@@ -695,6 +758,8 @@ def populate_chart_data_structures(survey_type_title, teams, team_history, tz='U
     row = None
     num_scores = 0
     score_sum = 0
+    score_min = None
+    score_max = None
     responder_sum = 0
     for survey_summary in team_history:
         if survey_summary.team_name != 'Average':
@@ -706,9 +771,12 @@ def populate_chart_data_structures(survey_type_title, teams, team_history, tz='U
                 if num_scores > 0:
                     average_score = float(old_div(score_sum, num_scores))
                     row['Average'] = (average_score,
-                                      "%.2f (%d Response%s)" % (average_score, responder_sum,
-                                                                's' if responder_sum > 1 else ''))
+                            "%.2f %s (%d Response%s)" % (average_score,
+                                                        "Min: %d Max: %d" % (score_min, score_max) if score_min else '',
+                                                        responder_sum, 's' if responder_sum > 1 else ''))
                     score_sum = 0
+                    score_min = None
+                    score_max = None
                     num_scores = 0
                     responder_sum = 0
                 history_chart_data.append(row)
@@ -719,16 +787,22 @@ def populate_chart_data_structures(survey_type_title, teams, team_history, tz='U
 
             # Accumulate for average calc
             score_sum += average_score
+            if survey_summary.minimum_score:
+                score_min = min(score_min, survey_summary.minimum_score) if score_min else survey_summary.minimum_score
+            if survey_summary.maximum_score:
+                score_max = max(score_max, survey_summary.maximum_score) if score_max else survey_summary.maximum_score
             num_scores += 1
             responder_sum += responder_count
 
             row[survey_summary.team_name] = (average_score,
-                                             "%.2f (%d Response%s)" % (average_score, responder_count,
-                                                                       's' if responder_count > 1 else ''))
+                                             "%.2f %s (%d Response%s)" % (average_score,
+                                                        "Min: %d Max: %d" % (survey_summary.minimum_score, survey_summary.maximum_score) if survey_summary.minimum_score else '',
+                                                         responder_count, 's' if responder_count > 1 else ''))
 
     average_score = float(old_div(score_sum, num_scores))
-    row['Average'] = (average_score, "%.2f (%d Response%s)" % (average_score, responder_sum,
-                                     's' if responder_sum > 1 else ''))
+    row['Average'] = (average_score, "%.2f %s (%d Response%s)" % (average_score,
+                                                        "Min: %d Max: %d" % (score_min, score_max) if score_min else '',
+                                                        responder_sum, 's' if responder_sum > 1 else ''))
 
     history_chart_data.append(row)
 
@@ -757,7 +831,7 @@ def populate_chart_data_structures(survey_type_title, teams, team_history, tz='U
     return historical_options, json_history_chart_table, team_index
 
 
-def populate_bvc_data(survey, team_name, archive_id, num_iterations, dept_name='', region_name='', site_name=''):
+def populate_bvc_data(survey, team_name, archive_id, num_iterations=0, dept_name='', region_name='', site_name=''):
     # in: survey_id, team_name and archive_id
     # out:
     #    populate bvc_data['archived_dates']       For Drop Down List
@@ -851,57 +925,61 @@ def populate_bvc_data(survey, team_name, archive_id, num_iterations, dept_name='
 
     bvc_data['stats'] = generate_bvc_stats(survey, bvc_teams_list, bvc_data['stats_date'], num_iterations)
 
+    bvc_data['word_list'] = ''
+
+    if bvc_data['stats']['words']:
+        words = ""
+        word_count = 0
+
+        # we want these to include and count duplicates
+        for word in bvc_data['stats']['words']:
+            for i in range(0, word['id__count']):
+                words += word['word'] + " "
+                word_count += 1
+
+        bvc_data['word_list'] = words.lower().strip()
+
     return bvc_data
 
 
-def cached_word_cloud(word_list):
-    words = ""
-    word_count = 0
-
-    # we want these to include and count duplicates
-    for word in word_list:
-        for i in range(0, word['id__count']):
-            words += word['word'] + " "
-            word_count += 1
-
-    words = words.lower().strip()
-
-    if words == "":
+def cached_word_cloud(word_list=None, word_hash=None, generate=True):
+    word_cloud_image = None
+    if word_list:
+        word_hash = hashlib.sha1(word_list.encode('utf-8')).hexdigest()
+        word_cloud_image, _ = WordCloudImage.objects.get_or_create(word_hash=word_hash, word_list=word_list)
+    elif word_hash:
+        try:
+            word_cloud_image = WordCloudImage.objects.get(word_hash=word_hash)
+            word_list = word_cloud_image.word_list
+        except WordCloudImage.DoesNotExist:
+            return None
+    else:
         return None
 
-    word_hash = hashlib.sha1(words.encode('utf-8')).hexdigest()
-
-    # most recent word cloud first
-    word_cloud_objects = WordCloudImage.objects.filter(word_hash=word_hash).order_by('-id')
-
-    if word_cloud_objects:
-        word_cloud_image = word_cloud_objects[0]
-        filename = media_file(word_cloud_image.image_url, 'wordcloud_images')
+    if word_cloud_image.image_url:
+        filename = media_file(word_cloud_image.image_url)
 
         if os.path.isfile(filename):
             print("Cached Word Cloud: " + filename + " found", file=sys.stderr)
-            return word_cloud_image.image_url
+            return word_cloud_image
         else:
             print("Cached Word Cloud: " + filename + " not found", file=sys.stderr)
-            # Most recent word cloud has been deleted: remove all for this word list from db and then regenerate
-            word_cloud_objects.delete()
+            word_cloud_image.image_url = None
 
-    word_cloudurl = generate_wordcloud(words, word_hash)
+    if generate and not word_cloud_image.image_url:
+        word_cloud_image.image_url = generate_wordcloud(word_list, word_hash)
 
-    if word_cloudurl:
-        word_cloud = WordCloudImage(word_list=words, word_hash=word_hash,
-                                    image_url=word_cloudurl)
-        word_cloud.full_clean()
-        word_cloud.save()
+    word_cloud_image.full_clean()
+    word_cloud_image.save()
 
-    return word_cloudurl
+    return word_cloud_image
 
 
-def generate_bvc_stats(survey, team_name_list, archive_date, num_iterations):
+def generate_bvc_stats(survey, team_name_list, archive_date, num_iterations=0):
     # Generate Stats for Team Temp Average for gauge and wordcloud - look here for Gauge and Word Cloud
     # BVC.html uses stats.count and stats.average.score__avg and cached word cloud uses stats.words below
 
-    agg_stats = {'count': 0, 'average': 0.00, 'words': []}
+    agg_stats = {'count': 0, 'average': 0.00, 'minimum': None, 'maximum': None, 'words': []}
 
     if team_name_list != [''] and archive_date == '':
         stats, _ = survey.team_stats(team_name_list=team_name_list)
@@ -913,16 +991,18 @@ def generate_bvc_stats(survey, team_name_list, archive_date, num_iterations):
         stats, _ = survey.stats()
 
     # Calculate and average and word cloud over multiple iterations (changes date range but same survey id):
-    if int(float(num_iterations)) > 0:
-        multi_stats = calc_multi_iteration_average(team_name_list, survey, int(float(num_iterations)),
-                                                   survey.default_tz)
-        if multi_stats:
-            stats = multi_stats
+    multi_stats = calc_multi_iteration_average(team_name_list, survey, num_iterations, survey.default_tz)
+    if multi_stats:
+        stats = multi_stats
 
     agg_stats['count'] = stats['count']
 
     if stats['average']['score__avg']:
         agg_stats['average'] = stats['average']['score__avg']
+    if stats['minimum']['score__min']:
+        agg_stats['minimum'] = stats['minimum']['score__min']
+    if stats['maximum']['score__max']:
+        agg_stats['maximum'] = stats['maximum']['score__max']
     agg_stats['words'] = list(stats['words'])
 
     return agg_stats
@@ -957,8 +1037,26 @@ def calc_multi_iteration_average(team_name, survey, num_iterations=2, tz='UTC'):
     return None
 
 
+@csp_exempt
+def wordcloud_view(request, word_hash=''):
+    # Cached word cloud
+    if word_hash:
+        word_cloud_image = cached_word_cloud(word_hash=word_hash, generate=True)
+
+        if word_cloud_image and word_cloud_image.image_url:
+            return redirect(word_cloud_image.image_url)
+
+        print("Word Cloud: '%s' not found" % word_hash, file=sys.stderr)
+
+    return redirect('/media/blank.png')
+
+
 @ie_edge()
-def bvc_view(request, survey_id, team_name='', archive_id='', num_iterations='0',region_names='', site_names='', dept_names=''):
+@csp_update(SCRIPT_SRC=['*.google.com', '*.googleapis.com', "'unsafe-eval'", "'unsafe-inline'",],
+    STYLE_SRC=['*.google.com', '*.googleapis.com',],
+    IMG_SRC = ['blob:', 'gg.google.com',])
+def bvc_view(request, survey_id, team_name='', archive_id='', num_iterations='0', region_names='', site_names='',
+             dept_names=''):
     survey = get_object_or_404(TeamTemperature, pk=survey_id)
 
     timezone.activate(pytz.timezone(survey.default_tz or 'UTC'))
@@ -970,7 +1068,7 @@ def bvc_view(request, survey_id, team_name='', archive_id='', num_iterations='0'
     historical_options = {}
 
     # Populate data for BVC including previously archived BVC
-    bvc_data = populate_bvc_data(survey, team_name, archive_id, num_iterations, dept_names, region_names,
+    bvc_data = populate_bvc_data(survey, team_name, archive_id, int(float(num_iterations)), dept_names, region_names,
                                  site_names)
 
     # If there is history to chart generate all data required for historical charts
@@ -979,17 +1077,21 @@ def bvc_view(request, survey_id, team_name='', archive_id='', num_iterations='0'
             bvc_data['survey_type_title'], bvc_data['teams'], bvc_data['team_history'], survey.default_tz)
 
     # Cached word cloud
-    if bvc_data['stats']['words']:
-        bvc_data['word_cloudurl'] = cached_word_cloud(bvc_data['stats']['words'])
+    if bvc_data['word_list']:
+        word_cloud_image = cached_word_cloud(bvc_data['word_list'], generate=False)
+        if os.environ.get('XMASHAPEKEY'):
+            bvc_data['word_cloud_url'] = word_cloud_image.image_url or reverse('wordcloud', kwargs={'word_hash': word_cloud_image.word_hash})
+        bvc_data['word_cloud_width'] = settings.WORDCLOUD_WIDTH
+        bvc_data['word_cloud_height'] = settings.WORDCLOUD_HEIGHT
 
     all_dept_names = set()
     all_region_names = set()
     all_site_names = set()
 
     for team in bvc_data['survey_teams']:
-        all_dept_names.add(team.dept_name)
-        all_region_names.add(team.region_name)
-        all_site_names.add(team.site_name)
+        all_dept_names.add(team.dept_name or '')
+        all_region_names.add(team.region_name or '')
+        all_site_names.add(team.site_name or '')
 
     if len(all_dept_names) < 2:
         all_dept_names = []
@@ -1015,19 +1117,19 @@ def bvc_view(request, survey_id, team_name='', archive_id='', num_iterations='0'
                     or len(all_site_names) > len(csf['filter_site_names']):
                 filter_this_bvc = True
 
-            print("len(all_dept_names)", len(all_dept_names), "len(csf['filter_dept_names']", len(csf['filter_dept_names']), file=sys.stderr)
+            print("len(all_dept_names)", len(all_dept_names), "len(csf['filter_dept_names']",
+                  len(csf['filter_dept_names']), file=sys.stderr)
 
             filter_dept_names = ','.join(csf['filter_dept_names'])
             filter_region_names = ','.join(csf['filter_region_names'])
             filter_site_names = ','.join(csf['filter_site_names'])
 
             print("Filter this bvc:", filter_this_bvc, file=sys.stderr)
-
-            return HttpResponseRedirect(reverse('bvc', kwargs={'survey_id': survey_id,
-                                                               'dept_names': filter_dept_names,
-                                                               'region_names': filter_region_names,
-                                                               'site_names': filter_site_names}))
         else:
+            return redirect('bvc', survey_id=survey_id,
+                            dept_names=filter_dept_names,
+                            region_names=filter_region_names,
+                            site_names=filter_site_names)
             raise Exception('Form Is Not Valid:', form)
     else:
         return render(request, 'bvc.html',

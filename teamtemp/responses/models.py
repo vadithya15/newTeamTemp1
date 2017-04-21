@@ -1,45 +1,53 @@
-from builtins import str, object
-from future.utils import python_2_unicode_compatible
+from __future__ import unicode_literals
 
 import hashlib
+from datetime import timedelta
 
 import pytz
-from datetime import timedelta
+from builtins import object
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.utils import timezone
+from django.utils.encoding import python_2_unicode_compatible
 
 
+@python_2_unicode_compatible
 class WordCloudImage(models.Model):
     id = models.AutoField(primary_key=True)
-    word_hash = models.CharField(max_length=40, db_index=True)
+    word_hash = models.CharField(max_length=40, unique=True)
     word_list = models.CharField(max_length=5000)
-    image_url = models.CharField(max_length=255)
+    image_url = models.CharField(max_length=255, null=True, blank=True)
     creation_date = models.DateTimeField(auto_now_add=True)
+    modified_date = models.DateTimeField(auto_now=True, db_index=True)
 
     def __str__(self):
-        return u"{}: {} {} {} {}".format(self.id, self.creation_date, self.word_hash, self.word_list, self.image_url)
+        return "{}: {} {} {} {}".format(self.id, self.creation_date, self.word_hash, self.word_list, self.image_url)
 
     def clean(self):
         self.word_list = self.word_list.lower().strip()
         self.word_hash = hashlib.sha1(self.word_list.encode('utf-8')).hexdigest()
 
 
+@python_2_unicode_compatible
 class User(models.Model):
     id = models.CharField(max_length=32, primary_key=True)
     creation_date = models.DateTimeField(auto_now_add=True)
 
     def __str__(self):
-        return u"{}: {}".format(self.id, self.creation_date)
+        return "{}: {}".format(self.id, self.creation_date)
 
 
 def _stats_for(query_set):
     return {
                'count': query_set.count(),
                'average': query_set.aggregate(models.Avg('score')),
+               'minimum': query_set.aggregate(models.Min('score')),
+               'maximum': query_set.aggregate(models.Max('score')),
                'words': query_set.values('word').annotate(models.Count("id")).order_by()
            }, query_set
 
 
+@python_2_unicode_compatible
 class TeamTemperature(models.Model):
     TEAM_TEMP = 'TEAMTEMP'
     DEPT_REGION_SITE = 'DEPT-REGION-SITE'
@@ -94,30 +102,32 @@ class TeamTemperature(models.Model):
                 if self.archive_date is not None:
                     self.next_archive_date = (self.archive_date + timedelta(days=self.archive_schedule)).date()
                 else:
-                    self.next_archive_date = timezone.now().date()
+                    self.next_archive_date = timezone.localtime(timezone.now(), timezone=pytz.timezone(self.default_tz)).date()
         elif overwrite:
             self.next_archive_date = None
 
         return self.next_archive_date
 
-    def advance_next_archive_date(self):
-        if self.archive_schedule > 0:
-            if self.next_archive_date is None:
-                self.fill_next_archive_date()
+    def advance_next_archive_date(self, now_date=None):
+        self.fill_next_archive_date()
 
-            now = timezone.now().date()
-            while self.next_archive_date < now:
+        if self.archive_schedule > 0:
+            if not now_date:
+                now_date = timezone.localtime(timezone.now(), timezone=pytz.timezone(self.default_tz)).date()
+
+            while self.next_archive_date <= now_date:
                 self.next_archive_date = self.next_archive_date + timedelta(days=self.archive_schedule)
 
         return self.next_archive_date
 
     def __str__(self):
-        return u"{}: {} {} {} {} {} {} {} {} {}".format(self.id, self.creator.id,
-                                                        self.creation_date, self.archive_schedule, self.archive_date,
-                                                        self.survey_type, self.region_names, self.region_names,
-                                                        self.site_names, self.default_tz)
+        return "{}: {} {} {} {} {} {} {} {} {}".format(self.id, self.creator.id,
+                                                       self.creation_date, self.archive_schedule, self.archive_date,
+                                                       self.survey_type, self.region_names, self.region_names,
+                                                       self.site_names, self.default_tz)
 
 
+@python_2_unicode_compatible
 class TemperatureResponse(models.Model):
     # class Meta:
     #     unique_together = ("request", "responder", "team_name", "archive_date")
@@ -125,24 +135,28 @@ class TemperatureResponse(models.Model):
     id = models.AutoField(primary_key=True)
     request = models.ForeignKey(TeamTemperature, related_name="temperature_responses")
     responder = models.ForeignKey(User, related_name="temperature_responses")
-    score = models.PositiveSmallIntegerField()
+    score = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)])
     word = models.CharField(max_length=32)
     team_name = models.CharField(max_length=64, db_index=True)
     archived = models.BooleanField(default=False, db_index=True)
     response_date = models.DateTimeField(db_index=True)
     archive_date = models.DateTimeField(blank=True, null=True, db_index=True)
 
+    def pretty_team_name(self):
+        return self.team_name.replace('_', ' ')
+
     def __str__(self):
-        return u"{}: {} {} {} {} {} {} {} {}".format(self.id, self.request.id,
-                                                     self.responder.id,
-                                                     self.score, self.word, self.team_name,
-                                                     self.archived, self.response_date,
-                                                     self.archive_date)
+        return "{}: {} {} {} {} {} {} {} {}".format(self.id, self.request.id,
+                                                    self.responder.id,
+                                                    self.score, self.word, self.team_name,
+                                                    self.archived, self.response_date,
+                                                    self.archive_date)
 
     def clean(self):
         self.word = self.word.lower().strip()
 
 
+@python_2_unicode_compatible
 class TeamResponseHistory(models.Model):
     class Meta(object):
         verbose_name_plural = "Team response histories"
@@ -150,21 +164,27 @@ class TeamResponseHistory(models.Model):
     id = models.AutoField(primary_key=True)
     request = models.ForeignKey(TeamTemperature, related_name="team_response_histories")
     average_score = models.DecimalField(decimal_places=5, max_digits=10)
+    minimum_score = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], null=True, blank=True)
+    maximum_score = models.PositiveSmallIntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)], null=True, blank=True)
     word_list = models.CharField(max_length=5000)
     responder_count = models.PositiveSmallIntegerField()
     team_name = models.CharField(max_length=64, null=True, db_index=True)
     archive_date = models.DateTimeField(db_index=True)
 
+    def pretty_team_name(self):
+        return self.team_name.replace('_', ' ')
+
     def __str__(self):
-        return u"{}: {} {} {} {} {} {}".format(self.id, self.request.id,
-                                               self.average_score,
-                                               self.word_list, self.responder_count,
-                                               self.team_name, self.archive_date)
+        return "{}: {} {} {} {} {} {}".format(self.id, self.request.id,
+                                              self.average_score,
+                                              self.word_list, self.responder_count,
+                                              self.team_name, self.archive_date)
 
     def clean(self):
         self.word_list = self.word_list.lower().strip()
 
 
+@python_2_unicode_compatible
 class Teams(models.Model):
     class Meta(object):
         verbose_name = "Team"
@@ -184,5 +204,5 @@ class Teams(models.Model):
         return self.team_name.replace('_', ' ')
 
     def __str__(self):
-        return u"{}: {} {} {} {} {}".format(self.id, self.request.id,
-                                            self.team_name, self.dept_name, self.site_name, self.region_name)
+        return "{}: {} {} {} {} {}".format(self.id, self.request.id,
+                                           self.team_name, self.dept_name, self.site_name, self.region_name)

@@ -12,83 +12,65 @@
 
         <h1>Create a Team Temperature Survey</h1>
 
-        <label>Select Survey Type</label>
-        <BR>
-        <select class="btn btn-default" id="SurveyTypeSelector">
-          <option value="{% url 'home' %}">TEAMTEMP</option>
+        <div class="field">
+          <label for="id_survey_type">Select Survey Type</label><br>
+          <select id="id_survey_type" name="survey_type" required="">
+            <option value="TEAMTEMP" {% if not survey_type or survey_type == "TEAMTEMP" %}selected{% endif %}>Team Temperature</option>
+            <option value="DEPT-REGION-SITE" {% if survey_type == "DEPT-REGION-SITE" %}selected{% endif %}>Department-Region-Site Temperature</option>
+            <option value="CUSTOMERFEEDBACK" {% if survey_type == "CUSTOMERFEEDBACK" %}selected{% endif %}>Customer Feedback</option>
+          </select>
           <script>
-            document.getElementById("SurveyTypeSelector").selectedIndex = document.getElementById("SurveyTypeSelector").length - 1;
+            document.getElementById("id_survey_type").onchange = function () {
+              if (this.value == 'DEPT-REGION-SITE') {
+                window.location.href = "/drs"
+              }
+              else if (this.value == 'CUSTOMERFEEDBACK') {
+                window.location.href = "/cs"
+              }
+              else {
+                window.location.href = "{% url 'home' %}";
+              }
+            };
           </script>
-          <option value="/drs">DEPT-REGION-SITE</option>
-          {% if survey_type == 'DEPT-REGION-SITE' %}
-            <script>
-              document.getElementById("SurveyTypeSelector").selectedIndex = document.getElementById("SurveyTypeSelector").length - 1;
-            </script>
-          {% endif %}
-          <option value="/cs">CUSTOMERFEEDBACK</option>
-          {% if survey_type == 'CUSTOMERFEEDBACK' %}
-            <script>
-              document.getElementById("SurveyTypeSelector").selectedIndex = document.getElementById("SurveyTypeSelector").length - 1;
-            </script>
-          {% endif %}
-        </select>
-        <script>
-          document.getElementById("SurveyTypeSelector").onchange = function () {
-            window.location.href = this.value;
-          };
-        </script>
+        </div>
         <br><br>
 
         <form method="post">
 
           {% bootstrap_form_errors form type='non_fields' %}
           {% csrf_token %}
-          {{ form.password.errors }}
-          <label for="id_password">Survey Password (so that you can see the admin pages if you change
-            browser)</label><br/>
-          <div class="row">
-            <div class="col-md-6">
-              {% bootstrap_field form.password layout='inline' size='sm' %}
-            </div>
+
+          <div class="field">
+            {% bootstrap_field form.new_password layout='vertical' size='sm' %}
           </div>
 
-          {% if survey_type != 'DEPT-REGION-SITE' %}
-            <div style="display: none;">
-          {% endif %}
+          <div class="field">
+            {% bootstrap_field form.confirm_password layout='vertical' size='sm' %}
+          </div>
+
+          {% if survey_type == 'DEPT-REGION-SITE' %}
 
           {{ form.dept_names.errors }}
-          <label for="dept_names">Department Names</label><br/>
-          <div class="row">
-            <div class="col-md-6">
-              {% bootstrap_field form.dept_names layout='inline' size='sm' %}
-            </div>
+          <div class="field">
+            {% bootstrap_field form.dept_names layout='vertical' size='sm' %}
           </div>
 
           {{ form.region_names.errors }}
-          <label for="region_names">Region Names</label><br/>
-          <div class="row">
-            <div class="col-md-6">
-              {% bootstrap_field form.region_names layout='inline' size='sm' %}
-            </div>
+          <div class="field">
+            {% bootstrap_field form.region_names layout='vertical' size='sm' %}
           </div>
 
           {{ form.site_names.errors }}
-          <label for="site_names">Site Names</label><br/>
-          <div class="row">
-            <div class="col-md-6">
-              {% bootstrap_field form.site_names layout='inline' size='sm' %}
-            </div>
+          <div class="field">
+            {% bootstrap_field form.site_names layout='vertical' size='sm' %}
           </div>
 
-          {% if survey_type != 'DEPT-REGION-SITE' %}
-            </div>
-          {% endif %}<br>
-          <div class="row">
-            <div class="col-md-6">
-              {% buttons %}
-                {% bootstrap_button "Create" button_type="submit" button_class="btn-primary" %}
-              {% endbuttons %}
-            </div>
+         {% endif %}<br>
+
+          <div class="field">
+            {% buttons %}
+              {% bootstrap_button "Create" button_type="submit" button_class="btn-primary" %}
+            {% endbuttons %}
           </div>
         </form>
       </div>

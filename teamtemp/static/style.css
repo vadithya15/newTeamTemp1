@@ -2,6 +2,12 @@ body {
   font-family: Tahoma, Verdana, Arial, sans-serif;
 }
 
+.min-max {
+  font-size: small;
+  font-weight: bold;
+  text-align: center;
+}
+
 .footer {
   font-size: smaller;
   text-align: center;
@@ -12,6 +18,7 @@ body {
   border-radius: 10px;
   padding: 5px 10px;
   display: inline-block;
+  width: 100%;
 }
 
 .info {
@@ -26,30 +33,38 @@ div.help-block {
   color: black;
 }
 
-.wordcloud {
-  border: 0 solid #036;
-  height: 7in;
-  margin: 0.2in auto;
-  padding: 0;
-  page-break-after: always;
-  page-break-inside: avoid;
-  width: 8in;
+.wordcloud-text {
+  font-size: large;
+  padding: 50px;
+  color: green;
+  border: 2px solid grey;
+  border-radius: 25px;
+  min-height: 400px;
+  background-color: #eee;
+  word-spacing: 10px;
+  line-height: 200%;
+  word-break: keep-all;
+}
+
+#wordcloud-link::after {
+  display: none;
 }
 
 .centregauge {
-  width: 400px;
+  width: 100%;
   min-height: 400px;
   display: block;
   margin-left: auto;
   margin-right: auto;
 }
 
-.centrewordcloud {
+.wordcloud {
   display: block;
   margin-left: auto;
   margin-right: auto;
   page-break-after: always;
   page-break-inside: avoid;
+  min-height: 400px;
 }
 
 @media print {
@@ -71,4 +86,10 @@ ul {
 
 .google-visualization-tooltip-item {
   white-space: nowrap;
+}
+
+.next_archive_date {
+  display: inline-block;
+  width: 167px;
+  vertical-align: middle;
 }

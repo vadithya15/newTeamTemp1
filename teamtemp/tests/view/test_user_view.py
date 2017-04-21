@@ -10,8 +10,8 @@ from teamtemp.tests.factories import UserFactory
 class UserViewTestCases(TestCase):
     def test_user_missing_view(self):
         response = self.client.get(reverse('user'))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertTemplateNotUsed(response, 'user.html')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTemplateUsed(response, 'user.html')
 
     def test_user_not_in_db_view(self):
         session = self.client.session
@@ -19,8 +19,8 @@ class UserViewTestCases(TestCase):
         session.save()
 
         response = self.client.get(reverse('user'))
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertTemplateNotUsed(response, 'user.html')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTemplateUsed(response, 'user.html')
 
     def test_user_found_view(self):
         user = UserFactory()

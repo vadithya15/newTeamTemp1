@@ -1,5 +1,3 @@
-import six
-
 from django.core.urlresolvers import reverse
 from django.test import TestCase
 from rest_framework import status
@@ -12,4 +10,6 @@ class RobotsTxtViewTestCases(TestCase):
         self.assertEqual(response['Content-Type'], 'text/plain')
         self.assertEqual(response['Cache-Control'], 'public, max-age=86400')
         self.assertTemplateNotUsed(response, 'index.html')
-        self.assertEqual(response.content, six.b(''))
+        self.assertGreater(len(response.content), 0)
+        self.assertContains(response, 'User-agent:')
+        self.assertContains(response, 'Disallow:')

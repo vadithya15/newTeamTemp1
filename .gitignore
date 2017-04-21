@@ -24,7 +24,7 @@ coverage/
 *.swp
 
 # Virtual env
-venv
+venv*
 
 # project files
 staticfiles

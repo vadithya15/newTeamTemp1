@@ -46,7 +46,8 @@ class TemperatureResponseTestCases(TestCase):
         stats, query_set = teamtemp.stats()
 
         self.assertEqual(stats['count'], 3)
-        self.assertEqual(stats['average']['score__avg'], old_div(float(response1.score + response2.score + response3.score), 3))
+        self.assertEqual(stats['average']['score__avg'],
+                         old_div(float(response1.score + response2.score + response3.score), 3))
 
         words = [[x['word']] * x['id__count'] for x in stats['words']]
         flat_words = sorted(itertools.chain(*words))
@@ -54,3 +55,7 @@ class TemperatureResponseTestCases(TestCase):
         self.assertEqual(flat_words, sorted([response1.word, response2.word, response3.word]))
 
         self.assertEqual(query_set.count(), 3)
+
+    def test_pretty_team_name(self):
+        response = TemperatureResponseFactory(team_name='bob_and_his_friends')
+        self.assertEqual(response.pretty_team_name(), 'bob and his friends')
