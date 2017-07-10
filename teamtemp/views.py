@@ -17,6 +17,7 @@ from csp.decorators import csp_update, csp_exempt
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.http import Http404, HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -165,7 +166,8 @@ def authenticated_user(request, survey):
 
 
 @ie_edge()
-@csp_update(SCRIPT_SRC=["'unsafe-inline'", ])
+@csp_update(SCRIPT_SRC=["'unsafe-inline'", ],
+        IMG_SRC=["'self'", 'data:', 'blob:', 'code.jquery.com',],)
 def set_view(request, survey_id):
     survey = get_object_or_404(TeamTemperature, pk=survey_id)
 
@@ -360,6 +362,20 @@ def user_view(request):
     return render(request, 'user.html', {'user': user, 'admin_surveys': admin_surveys})
 
 
+@no_cache()
+@login_required
+def super_view(request, survey_id):
+    survey = get_object_or_404(TeamTemperature, pk=survey_id)
+
+    if not authenticated_user(request, survey):
+        responses.add_admin_for_survey(request, survey.id)
+
+    redirect_to = request.get_full_path().replace('/super/', '/admin/')
+
+    return redirect('login', survey_id=survey_id, redirect_to=redirect_to)
+
+
+@no_cache()
 @ie_edge()
 def login_view(request, survey_id, redirect_to=None):
     survey = get_object_or_404(TeamTemperature, pk=survey_id)
@@ -386,7 +402,6 @@ def login_view(request, survey_id, redirect_to=None):
         return redirect(redirect_to)
 
     return render(request, 'password.html', { 'form': form })
-
 
 @ie_edge()
 @csp_update(SCRIPT_SRC=["'unsafe-inline'",],)
@@ -771,8 +786,8 @@ def populate_chart_data_structures(survey_type_title, teams, team_history, tz='U
                 if num_scores > 0:
                     average_score = float(old_div(score_sum, num_scores))
                     row['Average'] = (average_score,
-                            "%.2f %s (%d Response%s)" % (average_score,
-                                                        "Min: %d Max: %d" % (score_min, score_max) if score_min else '',
+                            "%.2f (%s%d Response%s)" % (average_score,
+                                                        "Min: %.2f, Max: %.2f, " % (score_min, score_max) if score_min else '',
                                                         responder_sum, 's' if responder_sum > 1 else ''))
                     score_sum = 0
                     score_min = None
@@ -795,13 +810,13 @@ def populate_chart_data_structures(survey_type_title, teams, team_history, tz='U
             responder_sum += responder_count
 
             row[survey_summary.team_name] = (average_score,
-                                             "%.2f %s (%d Response%s)" % (average_score,
-                                                        "Min: %d Max: %d" % (survey_summary.minimum_score, survey_summary.maximum_score) if survey_summary.minimum_score else '',
+                                             "%.2f (%s%d Response%s)" % (average_score,
+                                                        "Min: %.2f, Max: %.2f, " % (survey_summary.minimum_score, survey_summary.maximum_score) if survey_summary.minimum_score else '',
                                                          responder_count, 's' if responder_count > 1 else ''))
 
     average_score = float(old_div(score_sum, num_scores))
-    row['Average'] = (average_score, "%.2f %s (%d Response%s)" % (average_score,
-                                                        "Min: %d Max: %d" % (score_min, score_max) if score_min else '',
+    row['Average'] = (average_score, "%.2f (%s%d Response%s)" % (average_score,
+                                                        "Min: %.2f, Max: %.2f, " % (score_min, score_max) if score_min else '',
                                                         responder_sum, 's' if responder_sum > 1 else ''))
 
     history_chart_data.append(row)
@@ -960,10 +975,8 @@ def cached_word_cloud(word_list=None, word_hash=None, generate=True):
         filename = media_file(word_cloud_image.image_url)
 
         if os.path.isfile(filename):
-            print("Cached Word Cloud: " + filename + " found", file=sys.stderr)
             return word_cloud_image
         else:
-            print("Cached Word Cloud: " + filename + " not found", file=sys.stderr)
             word_cloud_image.image_url = None
 
     if generate and not word_cloud_image.image_url:
@@ -1037,6 +1050,7 @@ def calc_multi_iteration_average(team_name, survey, num_iterations=2, tz='UTC'):
     return None
 
 
+@no_cache()
 @csp_exempt
 def wordcloud_view(request, word_hash=''):
     # Cached word cloud
@@ -1045,8 +1059,6 @@ def wordcloud_view(request, word_hash=''):
 
         if word_cloud_image and word_cloud_image.image_url:
             return redirect(word_cloud_image.image_url)
-
-        print("Word Cloud: '%s' not found" % word_hash, file=sys.stderr)
 
     return redirect('/media/blank.png')
 

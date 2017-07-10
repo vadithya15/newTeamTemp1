@@ -1,7 +1,6 @@
 import re
 
 import pytz
-from bootstrap3_datepicker.widgets import DatePickerInput
 from builtins import object
 from builtins import str
 from django import forms
@@ -258,11 +257,13 @@ class SurveySettingsForm(forms.ModelForm):
     region_names = forms.CharField(widget=forms.TextInput(attrs={'size': '64'}), max_length=64, required=False)
     site_names = forms.CharField(widget=forms.TextInput(attrs={'size': '64'}), max_length=64, required=False)
     default_tz = forms.ChoiceField(choices=[(x, x) for x in pytz.all_timezones], required=False)
-    next_archive_date = forms.DateField(widget=DatePickerInput(format="%Y-%m-%d",
-                                                               options={'autoclose': True, 'startDate': '-1d',
-                                                                        'todayBtn': True, 'todayHighlight': True },
-                                                               attrs={'autocomplete': 'next-archive-date'}),
-                                        required=False)
+    next_archive_date = forms.DateField(widget=forms.DateInput(
+        attrs={
+            'type': 'date',
+            'class': 'datepicker',
+            'pattern': '(?:19|20)[0-9]{2}-(?:(?:0[1-9]|1[0-2])-(?:0[1-9]|1[0-9]|2[0-9])|(?:(?!02)(?:0[1-9]|1[0-2])-(?:30))|(?:(?:0[13578]|1[02])-31))'
+        },
+        format='%Y-%m-%d'), required=False)
 
     class Meta(object):
         model = TeamTemperature
@@ -329,6 +330,15 @@ class SurveySettingsForm(forms.ModelForm):
         if 1 > int(max_word_count) > 5:
             raise forms.ValidationError('Max Word Count Min Value = 1, Max Value = 5')
         return max_word_count
+
+    def clean_new_team_name(self):
+        team_name = re.sub(r' +', '_', self.cleaned_data['new_team_name'].strip())
+        matches = re.findall(r'[^\w-]', team_name)
+        if matches:
+            error = '"{team_name}" contains invalid characters ' \
+                    '{matches}'.format(team_name=escape(team_name), matches=list({str(x) for x in matches}))
+            raise forms.ValidationError(error)
+        return team_name
 
     def clean(self):
         cleaned_data = super(SurveySettingsForm, self).clean()
