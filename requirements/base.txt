@@ -9,7 +9,7 @@ django-filter==1.0.4
 djangorestframework==3.6.4
 django-secure==1.0.1
 django-toolbelt==0.0.1
-django-user-sessions==1.5.0
+django-user-sessions==1.5.3
 gunicorn==19.7.1
 #https://google-visualization-python.googlecode.com/files/gviz_api_py-1.8.2.tar.gz
 #http://downloads.sourceforge.net/project/google-visualization-python/gviz_api_py-1.8.2.tar.gz
