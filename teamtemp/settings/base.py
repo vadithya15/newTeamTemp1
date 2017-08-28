@@ -113,7 +113,8 @@ INSTALLED_APPS = (
     'django.contrib.admindocs',
     'django_filters',
     'teamtemp.responses',
-    'bootstrap3',
+    'bootstrap4',
+    'django_icons',
     'rest_framework',
     'crispy_forms',
     'cspreports',
@@ -180,8 +181,8 @@ TEMPLATES = [
     },
 ]
 
-# Settings for django-bootstrap3
-BOOTSTRAP3 = {
+# Settings for django-bootstrap4
+BOOTSTRAP4 = {
     'javascript_in_head': True,
 }
 
@@ -191,7 +192,7 @@ SECURE_FRAME_DENY = True
 X_FRAME_OPTIONS = 'DENY'
 
 CSP_DEFAULT_SRC = ("'none'",)
-CSP_SCRIPT_SRC = ( "'self'", 'code.jquery.com', 'maxcdn.bootstrapcdn.com',)
+CSP_SCRIPT_SRC = ( "'self'", 'code.jquery.com', 'maxcdn.bootstrapcdn.com', 'cdnjs.cloudflare.com',)
 CSP_CONNECT_SRC = ("'self'",)
 CSP_STYLE_SRC = ("'self'", "'unsafe-inline'", 'code.jquery.com', 'maxcdn.bootstrapcdn.com',)
 CSP_IMG_SRC = ("'self'", 'data:', 'blob:',)
