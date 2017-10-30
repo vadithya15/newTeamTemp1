@@ -30,7 +30,9 @@ class TeamTemperatureTestCases(TestCase):
         self.assertEqual(teamtemp.survey_type, 'CUSTOMERFEEDBACK')
 
     def test_uniq_teamtemp_ids(self):
-        self.assertNotEqual(TeamTemperatureFactory().id, TeamTemperatureFactory().id)
+        self.assertNotEqual(
+            TeamTemperatureFactory().id,
+            TeamTemperatureFactory().id)
 
     def test_multiple_surveys_for_user(self):
         user = UserFactory()
@@ -44,3 +46,9 @@ class TeamTemperatureTestCases(TestCase):
         with self.assertRaises(ValidationError):
             TeamTemperatureFactory(id='bob')
             TeamTemperatureFactory(id='bob')
+
+    def test_invalid_max_word_count(self):
+        with self.assertRaises(ValidationError):
+            TeamTemperatureFactory(max_word_count=0)
+        with self.assertRaises(ValidationError):
+            TeamTemperatureFactory(max_word_count=11)

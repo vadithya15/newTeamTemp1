@@ -4,6 +4,7 @@ from past.utils import old_div
 import itertools
 
 from django.test import TestCase
+from django.core.exceptions import ValidationError
 
 from teamtemp.tests.factories import TeamTemperatureFactory, TemperatureResponseFactory, UserFactory
 
@@ -11,13 +12,21 @@ from teamtemp.tests.factories import TeamTemperatureFactory, TemperatureResponse
 class TemperatureResponseTestCases(TestCase):
     def test_response(self):
         response = TemperatureResponseFactory()
+        response.clean()
         self.assertTrue(len(response.word) > 0)
         self.assertTrue(response.score > 0)
         self.assertTrue(len(response.team_name) > 0)
         self.assertIsNotNone(response.response_date)
         self.assertIsNotNone(response.request)
-        self.assertRegexpMatches(str(response), "^%d: %s %s %d %s %s " % (
-            response.id, response.request.id, response.responder.id, response.score, response.word, response.team_name))
+        self.assertRegexpMatches(
+            str(response),
+            "^%d: %s %s %d %s %s " %
+            (response.id,
+                response.request.id,
+                response.responder.id,
+                response.score,
+                response.word,
+                response.team_name))
 
         stats, query_set = response.request.stats()
         self.assertEqual(stats['count'], 1)
@@ -40,22 +49,36 @@ class TemperatureResponseTestCases(TestCase):
         teamtemp = TeamTemperatureFactory()
         response1 = TemperatureResponseFactory(request=teamtemp)
         response2 = TemperatureResponseFactory(request=teamtemp)
-        response3 = TemperatureResponseFactory(request=teamtemp, word=response2.word)
+        response3 = TemperatureResponseFactory(
+            request=teamtemp, word=response2.word)
         self.assertEqual(teamtemp.temperature_responses.count(), 3)
 
         stats, query_set = teamtemp.stats()
 
         self.assertEqual(stats['count'], 3)
-        self.assertEqual(stats['average']['score__avg'],
-                         old_div(float(response1.score + response2.score + response3.score), 3))
+        self.assertEqual(
+            stats['average']['score__avg'],
+            old_div(
+                float(
+                    response1.score +
+                    response2.score +
+                    response3.score),
+                3))
 
         words = [[x['word']] * x['id__count'] for x in stats['words']]
         flat_words = sorted(itertools.chain(*words))
 
-        self.assertEqual(flat_words, sorted([response1.word, response2.word, response3.word]))
+        self.assertEqual(flat_words, sorted(
+            [response1.word, response2.word, response3.word]))
 
         self.assertEqual(query_set.count(), 3)
 
     def test_pretty_team_name(self):
         response = TemperatureResponseFactory(team_name='bob_and_his_friends')
         self.assertEqual(response.pretty_team_name(), 'bob and his friends')
+
+    def test_invalid_score(self):
+        with self.assertRaises(ValidationError):
+            TemperatureResponseFactory(score=0)
+        with self.assertRaises(ValidationError):
+            TemperatureResponseFactory(score=11)
