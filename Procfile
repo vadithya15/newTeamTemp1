@@ -1,1 +1,1 @@
-web: gunicorn --pythonpath teamtemp.wsgi --log-file -
+web: gunicorn --pythonpath teamtemp teamtemp.wsgi --log-file -
