@@ -18,6 +18,7 @@ CSRF_COOKIE_SECURE = True
 CSRF_COOKIE_HTTPONLY = True
 
 # Make this unique, and don't share it with anybody.
-SECRET_KEY = os.environ['TEAMTEMP_SECRET_KEY']
+# SECRET_KEY = os.environ['TEAMTEMP_SECRET_KEY']
+SECRET_KEY=rp47vufz8lrr1cxki7lmc9w221ajgauk5ctv6xj
 
 DATABASES = {'default': dj_database_url.config(conn_max_age=600)}
