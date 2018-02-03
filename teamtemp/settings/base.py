@@ -3,6 +3,10 @@ import os
 
 from django.urls import reverse_lazy
 
+SECRET_KEY = os.environ.get(
+    'TEAMTEMP_SECRET_KEY',
+    'rp47vufz8lrr1cxki7lmc9w221ajgauk5ctv6xj')
+
 DEBUG = os.environ.get('DJANGO_DEBUG', False)
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
